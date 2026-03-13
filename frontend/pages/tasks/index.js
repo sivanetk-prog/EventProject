@@ -53,14 +53,16 @@ const loadData = async () => {
         <td>${assignee}</td>
         <td><span class="badge ${t.status}">${statusLabel[t.status]}</span></td>
         <td>
-          <button class="button button-secondary edit"
-            data-id="${t.id}"
-            data-title="${t.title}"
-            data-desc="${t.description || ''}"
-            data-status="${t.status}"
-            data-project="${t.project_id}"
-            data-user="${t.assigned_user_id || ''}">แก้ไข</button>
-          <button class="button button-danger delete" data-id="${t.id}">ลบ</button>
+          <div class="btn-row">
+            <button class="button button-outline-edit edit"
+              data-id="${t.id}"
+              data-title="${t.title}"
+              data-desc="${t.description || ''}"
+              data-status="${t.status}"
+              data-project="${t.project_id}"
+              data-user="${t.assigned_user_id || ''}">✏️ แก้ไข</button>
+            <button class="button button-outline-danger delete" data-id="${t.id}">🗑️ ลบ</button>
+          </div>
         </td>
       </tr>`
     }

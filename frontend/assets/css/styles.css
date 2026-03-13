@@ -372,6 +372,41 @@ input[type="checkbox"] {
   line-height: 1;
 }
 
+/* ─── Outline action buttons (edit / delete) ──── */
+.button-outline-edit {
+  background: #fff;
+  color: #27ae60;
+  border: 2px solid #27ae60;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+.button-outline-edit:hover {
+  background: #f0fdf4;
+}
+
+.button-outline-danger {
+  background: #fff;
+  color: var(--danger);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+.button-outline-danger:hover {
+  background: #fff1f0;
+}
+
+/* wrapper ให้ปุ่มอยู่แถวเดียวกัน */
+.btn-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+}
+
 /* Legacy support */
 .button.danger { background-color: var(--danger); color: #fff; }
 

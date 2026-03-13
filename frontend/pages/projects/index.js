@@ -33,8 +33,10 @@ const loadData = async () => {
         <td>${p.name}<br><small>${p.description || ''}</small></td>
         <td>${p.firstname} ${p.lastname}</td>
         <td>
-          <button class="button button-secondary edit" data-id="${p.id}" data-name="${p.name}" data-desc="${p.description || ''}">แก้ไข</button>
-          <button class="button button-danger delete" data-id="${p.id}">ลบ</button>
+          <div class="btn-row">
+            <button class="button button-outline-edit edit" data-id="${p.id}" data-name="${p.name}" data-desc="${p.description || ''}">✏️ แก้ไข</button>
+            <button class="button button-outline-danger delete" data-id="${p.id}">🗑️ ลบ</button>
+          </div>
         </td>
       </tr>`
     }
