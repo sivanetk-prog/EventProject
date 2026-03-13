@@ -403,13 +403,21 @@ input[type="checkbox"] {
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
 }
 
-.btn-row .button,
-.btn-row a {
+.btn-row > .button,
+.btn-row > a {
   flex: 1;
-  text-align: center;
+  justify-content: center;
+}
+
+.btn-row > a {
+  display: flex;
+}
+
+.btn-row > a > .button {
+  flex: 1;
   justify-content: center;
 }
 
