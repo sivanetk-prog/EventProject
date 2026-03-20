@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>อีเวนต์ฮับ - ระบบจัดการกิจกรรม</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container header-bar">
+            <div class="logo">Eventhub</div>
+            <nav class="main-nav">
+                <a href="index.html" class="nav-link">หน้าหลัก</a>
+                <a href="login.html" id="login-link" class="btn secondary">เข้าสู่ระบบ</a>
+                <span id="user-greeting" class="user-greeting" style="display: none;"></span>
+                <button id="logout-btn" class="btn secondary" onclick="logout()" style="display: none;">ออกจากระบบ</button>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container hero-content">
+            <h1>Eventhub</h1>
+            <p>สร้างกิจกรรม จองกิจกรรม และอัปโหลดรูปภาพจากคอมพิวเตอร์ได้ในระบบเดียว</p>
+            <div class="hero-buttons">
+                <button class="btn primary large" onclick="scroll_to_section('events-section')">ดูกิจกรรม</button>
+                <button id="create-event-link" class="btn secondary large" onclick="scroll_to_section('create-event')">สร้างกิจกรรม</button>
+            </div>
+        </div>
+    </section>
+
+    <section id="events-section" class="events-section container">
+        <h2>กิจกรรมทั้งหมด</h2>
+        <div id="events" class="event-grid"></div>
+    </section>
+
+    <section id="create-event" class="section-form container">
+        <div class="form-card">
+            <h2>สร้างกิจกรรมใหม่</h2>
+            <form id="event-form">
+                <label for="event_name">ชื่อกิจกรรม</label>
+                <input type="text" id="event_name" placeholder="ชื่อกิจกรรม" required>
+
+                <label for="event_date">วันที่จัดกิจกรรม</label>
+                <input type="date" id="event_date" required>
+
+                <label for="event_time">เวลาเริ่มกิจกรรม</label>
+                <input type="time" id="event_time" required>
+
+                <label for="event_location">สถานที่จัดกิจกรรม</label>
+                <input type="text" id="event_location" placeholder="เช่น ห้องประชุม 301" required>
+
+                <label for="event_capacity">จำนวนที่รับ (คน)</label>
+                <input type="number" id="event_capacity" min="1" placeholder="จำนวนผู้เข้าร่วม" required>
+
+                <label for="event_description">รายละเอียดกิจกรรม</label>
+                <textarea id="event_description" rows="4" placeholder="รายละเอียดกิจกรรม"></textarea>
+
+                <label for="event_image_file">อัปโหลดรูปกิจกรรม</label>
+                <input type="file" id="event_image_file" accept="image/*">
+                <div id="create-image-preview" class="image-preview" style="display: none;">
+                    <img id="create-image-preview-img" alt="ตัวอย่างรูปกิจกรรม">
+                </div>
+
+                <button type="submit" class="btn primary full-width">สร้างกิจกรรม</button>
+            </form>
+        </div>
+    </section>
+
+    <section id="register-section" class="section-modal" style="display: none;">
+        <div class="modal-card">
+            <h2 id="register-title">ลงทะเบียนเข้าร่วม</h2>
+            <p id="register-user-hint" class="helper-text"></p>
+            <form id="register-form">
+                <label for="first_name">ชื่อ</label>
+                <input type="text" id="first_name" placeholder="ชื่อ" required>
+
+                <label for="last_name">นามสกุล</label>
+                <input type="text" id="last_name" placeholder="นามสกุล" required>
+
+                <label for="gender">เพศ</label>
+                <select id="gender" required>
+                    <option value="">เลือกเพศ</option>
+                    <option value="ชาย">ชาย</option>
+                    <option value="หญิง">หญิง</option>
+                    <option value="อื่นๆ">อื่นๆ</option>
+                </select>
+
+                <label for="age">อายุ</label>
+                <input type="number" id="age" min="1" placeholder="อายุ" required>
+
+                <label for="food_allergies">อาหารที่แพ้</label>
+                <textarea id="food_allergies" rows="3" placeholder="ถ้าไม่มีให้พิมพ์ ไม่มี"></textarea>
+
+                <div class="modal-actions centered">
+                    <button type="submit" class="btn primary">ยืนยันลงทะเบียน</button>
+                    <button type="button" class="btn secondary" onclick="back_to_list()">กลับ</button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section id="participants-section" class="section-modal" style="display: none;">
+        <div class="modal-card">
+            <h2 id="participants-title">รายชื่อผู้เข้าร่วม</h2>
+            <ul id="participants-list" class="participants-list"></ul>
+            <div class="modal-actions centered">
+                <button type="button" class="btn secondary" onclick="back_to_list()">กลับ</button>
+            </div>
+        </div>
+    </section>
+
+    <div id="edit-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <button type="button" class="close-btn" onclick="close_edit_modal()">x</button>
+            <h2>แก้ไขกิจกรรม</h2>
+            <form id="edit-form">
+                <input type="hidden" id="edit_event_id">
+
+                <div class="form-group">
+                    <label for="edit_event_name">ชื่อกิจกรรม</label>
+                    <input type="text" id="edit_event_name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_date">วันที่จัดกิจกรรม</label>
+                    <input type="date" id="edit_event_date" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_time">เวลาเริ่มกิจกรรม</label>
+                    <input type="time" id="edit_event_time" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_location">สถานที่จัดกิจกรรม</label>
+                    <input type="text" id="edit_event_location" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_description">รายละเอียด</label>
+                    <textarea id="edit_event_description" rows="3"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_capacity">จำนวนที่รับ (คน)</label>
+                    <input type="number" id="edit_event_capacity" min="1" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_event_image_file">เปลี่ยนรูปกิจกรรม</label>
+                    <input type="file" id="edit_event_image_file" accept="image/*">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="remove_event_image">
+                        <span>ลบรูปเดิม</span>
+                    </label>
+                    <div id="edit-image-preview" class="image-preview" style="display: none;">
+                        <img id="edit-image-preview-img" alt="ตัวอย่างรูปกิจกรรมที่แก้ไข">
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="submit" class="btn warning">บันทึกการแก้ไข</button>
+                    <button type="button" class="btn secondary" onclick="close_edit_modal()">ยกเลิก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>&copy; 2025 อีเวนต์ฮับ พัฒนาโดย แบงก์ และ ฟลุค</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="js/shared.js"></script>
+    <script src="js/dialog.js"></script>
+    <script src="js/index.js"></script>
+</body>
+</html>

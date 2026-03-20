@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เข้าสู่ระบบ - อีเวนต์ฮับ</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <h1>อีเวนต์ฮับ</h1>
+            <p class="auth-subtitle">เข้าสู่ระบบด้วยข้อมูลจากฐานข้อมูล</p>
+
+            <form id="login-form">
+                <input type="email" id="user_email" placeholder="อีเมลผู้ใช้" required autocomplete="username">
+                <input type="password" id="user_password" placeholder="รหัสผ่าน" required autocomplete="current-password">
+                <button type="submit" class="btn primary">เข้าสู่ระบบ</button>
+            </form>
+
+            <div class="auth-links">
+                <p class="auth-link-note">
+                    ยังไม่มีบัญชี?
+                    <a href="register.html" class="auth-link">สมัครสมาชิก</a>
+                </p>
+                <p class="auth-back-link">
+                    <a href="index.html" class="auth-link">กลับไปหน้าหลัก</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="js/shared.js"></script>
+    <script src="js/dialog.js"></script>
+    <script src="js/login.js"></script>
+</body>
+</html>
