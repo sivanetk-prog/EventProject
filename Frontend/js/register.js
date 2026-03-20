@@ -1,5 +1,3 @@
-const API_BASE_URL = 'http://localhost:3070';
-
 document.getElementById('register-form').addEventListener('submit', async (submit_event) => {
     submit_event.preventDefault();
 
@@ -21,8 +19,6 @@ document.getElementById('register-form').addEventListener('submit', async (submi
         window.location.href = 'login.html';
     } catch (request_error) {
         console.error(request_error);
-        const error_message =
-            request_error.response?.data?.message || 'ไม่สามารถสมัครสมาชิกได้';
-        alert(error_message);
+        alert(get_request_error_message(request_error, 'ไม่สามารถสมัครสมาชิกได้'));
     }
 });

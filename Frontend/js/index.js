@@ -1,20 +1,6 @@
-const API_BASE_URL = 'http://localhost:3070';
-
 let event_list = [];
 let current_event_id = null;
-
-function is_logged_in_user() {
-    return localStorage.getItem('is_logged_in') === 'true';
-}
-
-function get_current_user_id() {
-    const current_user_id = Number(localStorage.getItem('current_user_id') || '0');
-    return current_user_id > 0 ? current_user_id : null;
-}
-
-function is_admin_user() {
-    return localStorage.getItem('current_user_role') === 'admin';
-}
+const $ = (element_id) => document.getElementById(element_id);
 
 function can_manage_event(event_row) {
     if (!event_row) return false;
@@ -61,6 +47,56 @@ function get_image_url(event_image) {
     return `${API_BASE_URL}${event_image}`;
 }
 
+function get_input_value(element_id) {
+    return $(element_id)?.value || '';
+}
+
+function get_trimmed_input_value(element_id) {
+    return get_input_value(element_id).trim();
+}
+
+function get_number_input_value(element_id) {
+    return parseInt(get_input_value(element_id) || '0', 10);
+}
+
+function get_input_file(element_id) {
+    return $(element_id)?.files?.[0] || null;
+}
+
+function get_event_form_values(prefix = '') {
+    const field_prefix = prefix ? `${prefix}_` : '';
+    const field = (field_name) => `${field_prefix}${field_name}`;
+
+    return {
+        event_name: get_trimmed_input_value(field('event_name')),
+        event_date: get_input_value(field('event_date')),
+        event_time: get_input_value(field('event_time')),
+        event_location: get_trimmed_input_value(field('event_location')),
+        event_capacity: get_number_input_value(field('event_capacity')),
+        event_description: get_trimmed_input_value(field('event_description')),
+        event_image_file: get_input_file(field('event_image_file'))
+    };
+}
+
+function get_registration_form_values() {
+    const first_name = get_trimmed_input_value('first_name');
+    const last_name = get_trimmed_input_value('last_name');
+
+    return {
+        first_name,
+        last_name,
+        gender: get_trimmed_input_value('gender'),
+        age: get_trimmed_input_value('age'),
+        food_allergies: get_trimmed_input_value('food_allergies'),
+        participant_name: `${first_name} ${last_name}`.trim()
+    };
+}
+
+function show_request_error(request_error, fallback_message) {
+    console.error(request_error);
+    alert(get_request_error_message(request_error, fallback_message));
+}
+
 window.addEventListener('load', async () => {
     setup_login_ui();
     bind_image_preview_inputs();
@@ -68,9 +104,9 @@ window.addEventListener('load', async () => {
 });
 
 function bind_image_preview_inputs() {
-    const create_image_input = document.getElementById('event_image_file');
-    const create_image_preview = document.getElementById('create-image-preview');
-    const create_image_preview_img = document.getElementById('create-image-preview-img');
+    const create_image_input = $('event_image_file');
+    const create_image_preview = $('create-image-preview');
+    const create_image_preview_img = $('create-image-preview-img');
 
     if (create_image_input) {
         create_image_input.addEventListener('change', async () => {
@@ -80,10 +116,10 @@ function bind_image_preview_inputs() {
         });
     }
 
-    const edit_image_input = document.getElementById('edit_event_image_file');
-    const edit_image_preview = document.getElementById('edit-image-preview');
-    const edit_image_preview_img = document.getElementById('edit-image-preview-img');
-    const remove_event_image = document.getElementById('remove_event_image');
+    const edit_image_input = $('edit_event_image_file');
+    const edit_image_preview = $('edit-image-preview');
+    const edit_image_preview_img = $('edit-image-preview-img');
+    const remove_event_image = $('remove_event_image');
 
     if (edit_image_input) {
         edit_image_input.addEventListener('change', async () => {
@@ -111,11 +147,11 @@ function bind_image_preview_inputs() {
 }
 
 function setup_login_ui() {
-    const create_event_section = document.getElementById('create-event');
-    const create_event_link = document.getElementById('create-event-link');
-    const login_link = document.getElementById('login-link');
-    const user_greeting = document.getElementById('user-greeting');
-    const logout_btn = document.getElementById('logout-btn');
+    const create_event_section = $('create-event');
+    const create_event_link = $('create-event-link');
+    const login_link = $('login-link');
+    const user_greeting = $('user-greeting');
+    const logout_btn = $('logout-btn');
 
     if (create_event_section) {
         create_event_section.style.display = is_logged_in_user() ? 'block' : 'none';
@@ -132,8 +168,8 @@ function setup_login_ui() {
         return;
     }
 
-    const current_user_name = localStorage.getItem('current_user_name') || '';
-    const current_user_role = localStorage.getItem('current_user_role') || 'participant';
+    const current_user_name = get_current_user_name();
+    const current_user_role = get_current_user_role();
 
     if (login_link) login_link.style.display = 'none';
     if (user_greeting) {
@@ -218,6 +254,19 @@ function get_registration_full_name(registration_row) {
     return full_name || String(registration_row?.user_name || '').trim() || '-';
 }
 
+function can_cancel_registration(registration_row) {
+    const current_user_id = get_current_user_id();
+    if (!current_user_id || !registration_row) {
+        return false;
+    }
+
+    return is_admin_user() || Number(registration_row.user_id) === Number(current_user_id);
+}
+
+function is_cancelled_registration(registration_row) {
+    return String(registration_row?.registration_status || '').trim().toLowerCase() === 'cancelled';
+}
+
 function split_full_name(full_name) {
     const name_parts = String(full_name || '').trim().split(/\s+/).filter(Boolean);
     if (name_parts.length === 0) {
@@ -246,7 +295,7 @@ async function fetch_event_list() {
 }
 
 function render_event_list() {
-    const event_grid = document.getElementById('events');
+    const event_grid = $('events');
     if (!event_grid) return;
 
     event_grid.innerHTML = '';
@@ -305,7 +354,7 @@ function render_event_list() {
     });
 }
 
-const event_form = document.getElementById('event-form');
+const event_form = $('event-form');
 if (event_form) {
     event_form.addEventListener('submit', async (submit_event) => {
         submit_event.preventDefault();
@@ -315,13 +364,15 @@ if (event_form) {
             return;
         }
 
-        const event_name = document.getElementById('event_name')?.value.trim() || '';
-        const event_date = document.getElementById('event_date')?.value || '';
-        const event_time = document.getElementById('event_time')?.value || '';
-        const event_location = document.getElementById('event_location')?.value.trim() || '';
-        const event_capacity = parseInt(document.getElementById('event_capacity')?.value || '0', 10);
-        const event_description = document.getElementById('event_description')?.value.trim() || '';
-        const event_image_file = document.getElementById('event_image_file')?.files?.[0] || null;
+        const {
+            event_name,
+            event_date,
+            event_time,
+            event_location,
+            event_capacity,
+            event_description,
+            event_image_file
+        } = get_event_form_values();
         const event_image_data = event_image_file ? await read_file_as_data_url(event_image_file) : null;
 
         if (!event_name || Number.isNaN(event_capacity) || event_capacity < 1) {
@@ -343,19 +394,14 @@ if (event_form) {
 
             submit_event.target.reset();
             set_image_preview(
-                document.getElementById('create-image-preview'),
-                document.getElementById('create-image-preview-img'),
+                $('create-image-preview'),
+                $('create-image-preview-img'),
                 null
             );
             await fetch_event_list();
             alert('สร้างกิจกรรมสำเร็จและบันทึกลงฐานข้อมูลแล้ว');
         } catch (request_error) {
-            console.error(request_error);
-            alert(
-                request_error.response?.data?.message ||
-                request_error.response?.data?.error ||
-                'ไม่สามารถสร้างกิจกรรมในฐานข้อมูลได้'
-            );
+            show_request_error(request_error, 'ไม่สามารถสร้างกิจกรรมในฐานข้อมูลได้');
         }
     });
 }
@@ -370,16 +416,16 @@ function show_register(event_id) {
         return;
     }
 
-    const register_title = document.getElementById('register-title');
-    const register_section = document.getElementById('register-section');
-    const register_user_hint = document.getElementById('register-user-hint');
-    const first_name_input = document.getElementById('first_name');
-    const last_name_input = document.getElementById('last_name');
-    const gender_input = document.getElementById('gender');
-    const age_input = document.getElementById('age');
-    const food_allergies_input = document.getElementById('food_allergies');
+    const register_title = $('register-title');
+    const register_section = $('register-section');
+    const register_user_hint = $('register-user-hint');
+    const first_name_input = $('first_name');
+    const last_name_input = $('last_name');
+    const gender_input = $('gender');
+    const age_input = $('age');
+    const food_allergies_input = $('food_allergies');
     const logged_in = is_logged_in_user();
-    const current_user_name = localStorage.getItem('current_user_name') || '';
+    const current_user_name = get_current_user_name();
     const name_parts = split_full_name(current_user_name);
 
     if (register_title) {
@@ -403,17 +449,13 @@ function show_register(event_id) {
     }
 }
 
-const register_form = document.getElementById('register-form');
+const register_form = $('register-form');
 if (register_form) {
     register_form.addEventListener('submit', async (submit_event) => {
         submit_event.preventDefault();
 
-        const first_name = document.getElementById('first_name')?.value.trim() || '';
-        const last_name = document.getElementById('last_name')?.value.trim() || '';
-        const gender = document.getElementById('gender')?.value.trim() || '';
-        const age = document.getElementById('age')?.value.trim() || '';
-        const food_allergies = document.getElementById('food_allergies')?.value.trim() || '';
-        const participant_name = `${first_name} ${last_name}`.trim();
+        const { first_name, last_name, gender, age, food_allergies, participant_name } =
+            get_registration_form_values();
         const current_user_id = get_current_user_id();
 
         if (!first_name || !last_name) {
@@ -448,8 +490,7 @@ if (register_form) {
             await fetch_event_list();
             alert('ลงทะเบียนสำเร็จและบันทึกลงฐานข้อมูลแล้ว');
         } catch (request_error) {
-            console.error(request_error);
-            alert(request_error.response?.data?.message || 'ไม่สามารถลงทะเบียนได้');
+            show_request_error(request_error, 'ไม่สามารถลงทะเบียนได้');
         }
     });
 }
@@ -457,9 +498,9 @@ if (register_form) {
 async function show_participants(event_id) {
     current_event_id = Number(event_id);
 
-    const participants_title = document.getElementById('participants-title');
-    const participants_list = document.getElementById('participants-list');
-    const participants_section = document.getElementById('participants-section');
+    const participants_title = $('participants-title');
+    const participants_list = $('participants-list');
+    const participants_section = $('participants-section');
 
     if (participants_title) {
         const event_row = event_list.find((item) => Number(item.event_id) === current_event_id);
@@ -482,6 +523,20 @@ async function show_participants(event_id) {
                         const food_allergies = escape_html(String(registration_row.food_allergies || '').trim() || 'ไม่มี');
                         const registration_status = escape_html(String(registration_row.registration_status || '-').trim() || '-');
                         const registration_date = escape_html(format_registration_date(registration_row.registration_date));
+                        const action_html =
+                            can_cancel_registration(registration_row) && !is_cancelled_registration(registration_row)
+                                ? `
+                                    <div class="participant-actions">
+                                        <button
+                                            type="button"
+                                            class="btn danger participant-action-button"
+                                            onclick="cancel_registration(${Number(registration_row.registration_id)})"
+                                        >
+                                            ยกเลิกการลงทะเบียน
+                                        </button>
+                                    </div>
+                                `
+                                : '';
 
                         return `
                             <li>
@@ -492,6 +547,7 @@ async function show_participants(event_id) {
                                     <span>อาหารที่แพ้: ${food_allergies}</span>
                                     <span class="participant-note">สถานะ: ${registration_status} | ลงทะเบียน: ${registration_date}</span>
                                 </div>
+                                ${action_html}
                             </li>
                         `;
                     })
@@ -503,15 +559,37 @@ async function show_participants(event_id) {
             participants_section.style.display = 'flex';
         }
     } catch (request_error) {
-        console.error(request_error);
-        alert('ไม่สามารถโหลดรายชื่อผู้เข้าร่วมได้');
+        show_request_error(request_error, 'ไม่สามารถโหลดรายชื่อผู้เข้าร่วมได้');
+    }
+}
+
+async function cancel_registration(registration_id) {
+    if (!get_current_user_id()) {
+        alert('กรุณาเข้าสู่ระบบก่อนยกเลิกการลงทะเบียน');
+        return;
+    }
+
+    if (!await show_confirm('คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการลงทะเบียนนี้?')) {
+        return;
+    }
+
+    try {
+        await axios.patch(`${API_BASE_URL}/registrations/${registration_id}/cancel`, {
+            user_id: get_current_user_id()
+        });
+
+        await fetch_event_list();
+        await show_participants(current_event_id);
+        alert('ยกเลิกการลงทะเบียนเรียบร้อยแล้ว');
+    } catch (request_error) {
+        show_request_error(request_error, 'ไม่สามารถยกเลิกการลงทะเบียนได้');
     }
 }
 
 function back_to_list() {
-    const register_section = document.getElementById('register-section');
-    const participants_section = document.getElementById('participants-section');
-    const register_form_element = document.getElementById('register-form');
+    const register_section = $('register-section');
+    const participants_section = $('participants-section');
+    const register_form_element = $('register-form');
 
     if (register_section) register_section.style.display = 'none';
     if (participants_section) participants_section.style.display = 'none';
@@ -520,11 +598,7 @@ function back_to_list() {
 
 async function logout() {
     if (await show_confirm('แน่ใจหรือไม่ว่าต้องการออกจากระบบ?')) {
-        localStorage.removeItem('is_logged_in');
-        localStorage.removeItem('current_user_id');
-        localStorage.removeItem('current_user_name');
-        localStorage.removeItem('current_user_email');
-        localStorage.removeItem('current_user_role');
+        clear_current_user();
         window.location.reload();
     }
 }
@@ -542,48 +616,50 @@ function open_edit_modal(event_id) {
         return;
     }
 
-    document.getElementById('edit_event_id').value = event_row.event_id;
-    document.getElementById('edit_event_name').value = event_row.event_name;
-    document.getElementById('edit_event_date').value = format_input_date(event_row.event_date);
-    document.getElementById('edit_event_time').value = format_event_time(event_row.event_time);
-    document.getElementById('edit_event_location').value = event_row.event_location || '';
-    document.getElementById('edit_event_description').value = event_row.event_description || '';
-    document.getElementById('edit_event_capacity').value = event_row.event_capacity;
-    document.getElementById('edit_event_image_file').value = '';
-    document.getElementById('remove_event_image').checked = false;
+    $('edit_event_id').value = event_row.event_id;
+    $('edit_event_name').value = event_row.event_name;
+    $('edit_event_date').value = format_input_date(event_row.event_date);
+    $('edit_event_time').value = format_event_time(event_row.event_time);
+    $('edit_event_location').value = event_row.event_location || '';
+    $('edit_event_description').value = event_row.event_description || '';
+    $('edit_event_capacity').value = event_row.event_capacity;
+    $('edit_event_image_file').value = '';
+    $('remove_event_image').checked = false;
 
     set_image_preview(
-        document.getElementById('edit-image-preview'),
-        document.getElementById('edit-image-preview-img'),
+        $('edit-image-preview'),
+        $('edit-image-preview-img'),
         get_image_url(event_row.event_image)
     );
 
-    document.getElementById('edit-modal').style.display = 'flex';
+    $('edit-modal').style.display = 'flex';
 }
 
 function close_edit_modal() {
-    const edit_modal = document.getElementById('edit-modal');
+    const edit_modal = $('edit-modal');
     if (edit_modal) {
         edit_modal.style.display = 'none';
     }
 }
 
-const edit_form = document.getElementById('edit-form');
+const edit_form = $('edit-form');
 if (edit_form) {
     edit_form.addEventListener('submit', async (submit_event) => {
         submit_event.preventDefault();
 
-        const event_id = Number(document.getElementById('edit_event_id').value);
+        const event_id = Number(get_input_value('edit_event_id'));
         const existing_event_row = event_list.find((item) => Number(item.event_id) === event_id);
-        const event_name = document.getElementById('edit_event_name').value.trim();
-        const event_date = document.getElementById('edit_event_date').value;
-        const event_time = document.getElementById('edit_event_time').value;
-        const event_location = document.getElementById('edit_event_location').value.trim();
-        const event_description = document.getElementById('edit_event_description').value.trim();
-        const event_capacity = parseInt(document.getElementById('edit_event_capacity').value, 10);
-        const edit_event_image_file = document.getElementById('edit_event_image_file').files?.[0] || null;
-        const event_image_data = edit_event_image_file ? await read_file_as_data_url(edit_event_image_file) : null;
-        const remove_event_image = document.getElementById('remove_event_image').checked;
+        const {
+            event_name,
+            event_date,
+            event_time,
+            event_location,
+            event_capacity,
+            event_description,
+            event_image_file
+        } = get_event_form_values('edit');
+        const event_image_data = event_image_file ? await read_file_as_data_url(event_image_file) : null;
+        const remove_event_image = $('remove_event_image').checked;
 
         if (!existing_event_row || !can_manage_event(existing_event_row)) {
             alert('เฉพาะเจ้าของกิจกรรมหรือ admin เท่านั้นที่แก้ไขได้');
@@ -612,12 +688,7 @@ if (edit_form) {
             await fetch_event_list();
             alert('อัปเดตกิจกรรมเรียบร้อยแล้ว');
         } catch (request_error) {
-            console.error(request_error);
-            alert(
-                request_error.response?.data?.message ||
-                request_error.response?.data?.error ||
-                'ไม่สามารถอัปเดตกิจกรรมได้'
-            );
+            show_request_error(request_error, 'ไม่สามารถอัปเดตกิจกรรมได้');
         }
     });
 }
@@ -643,11 +714,6 @@ async function open_delete_modal(event_id) {
         await fetch_event_list();
         alert('ลบกิจกรรมเรียบร้อยแล้ว');
     } catch (request_error) {
-        console.error(request_error);
-        alert(
-            request_error.response?.data?.message ||
-            request_error.response?.data?.error ||
-            'ไม่สามารถลบกิจกรรมได้'
-        );
+        show_request_error(request_error, 'ไม่สามารถลบกิจกรรมได้');
     }
 }

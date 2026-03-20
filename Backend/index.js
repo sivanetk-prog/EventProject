@@ -51,6 +51,21 @@ function send_error_response(response, error) {
   });
 }
 
+async function query_first_row(query_text, query_values = []) {
+  const [row_list] = await database.query(query_text, query_values);
+  return row_list[0] || null;
+}
+
+function async_handler(route_handler) {
+  return async (request, response) => {
+    try {
+      await route_handler(request, response);
+    } catch (error) {
+      send_error_response(response, error);
+    }
+  };
+}
+
 function build_guest_user_email(participant_name) {
   const email_name = String(participant_name)
     .toLowerCase()
@@ -200,7 +215,7 @@ async function ensure_registration_profile_columns() {
 }
 
 async function get_user_by_id(user_id) {
-  const [user_rows] = await database.query(
+  return query_first_row(
     `
       SELECT user_id, user_name, user_email, user_phone, user_role, created_at, updated_at
       FROM users
@@ -209,8 +224,6 @@ async function get_user_by_id(user_id) {
     `,
     [user_id]
   );
-
-  return user_rows[0] || null;
 }
 
 async function require_admin_user(user_id) {
@@ -244,7 +257,7 @@ async function require_authenticated_user(user_id) {
 }
 
 async function get_event_by_id(event_id) {
-  const [event_rows] = await database.query(
+  return query_first_row(
     `
       SELECT
         event_id,
@@ -264,8 +277,6 @@ async function get_event_by_id(event_id) {
     `,
     [event_id]
   );
-
-  return event_rows[0] || null;
 }
 
 async function require_event_owner(event_id, user_id) {
@@ -284,6 +295,55 @@ async function require_event_owner(event_id, user_id) {
   }
 
   return { user_row, event_row };
+}
+
+async function get_registration_by_id(registration_id) {
+  return query_first_row(
+    `
+      SELECT
+        registration_id,
+        event_id,
+        user_id,
+        registration_status,
+        created_at,
+        updated_at
+      FROM registrations
+      WHERE registration_id = ?
+      LIMIT 1
+    `,
+    [registration_id]
+  );
+}
+
+async function get_existing_registration(event_id, user_id) {
+  return query_first_row(
+    `
+      SELECT registration_id, registration_status
+      FROM registrations
+      WHERE event_id = ? AND user_id = ?
+      ORDER BY registration_id DESC
+      LIMIT 1
+    `,
+    [event_id, user_id]
+  );
+}
+
+async function require_registration_access(registration_id, user_id) {
+  const user_row = await require_authenticated_user(user_id);
+  const registration_row = await get_registration_by_id(registration_id);
+
+  if (!registration_row) {
+    throw create_http_error(404, 'Registration not found');
+  }
+
+  if (
+    user_row.user_role !== 'admin' &&
+    Number(registration_row.user_id) !== Number(user_row.user_id)
+  ) {
+    throw create_http_error(403, 'Only the registration owner or admin can cancel this registration');
+  }
+
+  return { user_row, registration_row };
 }
 
 async function get_or_create_user_id(participant_name) {
@@ -349,14 +409,10 @@ async function ensure_default_admin_user() {
   return insert_admin_result.insertId;
 }
 
-app.get('/health', async (request, response) => {
-  try {
-    await database.query('SELECT 1');
-    response.json({ ok: true, database_status: 'connected' });
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+app.get('/health', async_handler(async (request, response) => {
+  await database.query('SELECT 1');
+  response.json({ ok: true, database_status: 'connected' });
+}));
 
 app.post('/users/register', async (request, response) => {
   const { user_name, user_email, user_phone, user_password } = request.body;
@@ -391,7 +447,7 @@ app.post('/users/register', async (request, response) => {
   }
 });
 
-app.post('/auth/login', async (request, response) => {
+app.post('/auth/login', async_handler(async (request, response) => {
   const { user_email, user_password } = request.body;
 
   if (!user_email || !user_password) {
@@ -400,138 +456,122 @@ app.post('/auth/login', async (request, response) => {
     });
   }
 
-  try {
-    const [user_rows] = await database.query(
-      `
-        SELECT user_id, user_name, user_email, user_phone, user_role, created_at, updated_at
-        FROM users
-        WHERE user_email = ? AND user_password = ?
-        LIMIT 1
-      `,
-      [user_email, user_password]
-    );
+  const user_row = await query_first_row(
+    `
+      SELECT user_id, user_name, user_email, user_phone, user_role, created_at, updated_at
+      FROM users
+      WHERE user_email = ? AND user_password = ?
+      LIMIT 1
+    `,
+    [user_email, user_password]
+  );
 
-    if (user_rows.length === 0) {
-      throw create_http_error(401, 'Invalid email or password');
-    }
-
-    response.json({
-      message: 'Login successful',
-      user_row: user_rows[0]
-    });
-  } catch (error) {
-    send_error_response(response, error);
+  if (!user_row) {
+    throw create_http_error(401, 'Invalid email or password');
   }
-});
 
-app.get('/users', async (request, response) => {
+  response.json({
+    message: 'Login successful',
+    user_row
+  });
+}));
+
+app.get('/users', async_handler(async (request, response) => {
   const user_id = Number(request.query.user_id || 0);
 
-  try {
-    await require_admin_user(user_id);
+  await require_admin_user(user_id);
 
-    const [user_rows] = await database.query(
-      `
-        SELECT user_id, user_name, user_email, user_phone, user_role, created_at, updated_at
-        FROM users
-        ORDER BY user_id DESC
-      `
-    );
+  const [user_rows] = await database.query(
+    `
+      SELECT user_id, user_name, user_email, user_phone, user_role, created_at, updated_at
+      FROM users
+      ORDER BY user_id DESC
+    `
+  );
 
-    response.json(user_rows);
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json(user_rows);
+}));
 
-app.get('/registrations', async (request, response) => {
+app.get('/registrations', async_handler(async (request, response) => {
   const user_id = Number(request.query.user_id || 0);
 
-  try {
-    await require_admin_user(user_id);
+  await require_admin_user(user_id);
 
-    const [registration_rows] = await database.query(
-      `
-        SELECT
-          r.registration_id,
-          r.event_id,
-          r.user_id,
-          r.first_name,
-          r.last_name,
-          r.gender,
-          r.age,
-          r.food_allergies,
-          r.registration_date,
-          r.registration_status,
-          r.created_at,
-          r.updated_at,
-          e.event_name,
-          u.user_name,
-          u.user_email,
-          u.user_role
-        FROM registrations r
-        JOIN EVENTS e ON r.event_id = e.event_id
-        JOIN users u ON r.user_id = u.user_id
-        ORDER BY r.registration_id DESC
-      `
-    );
+  const [registration_rows] = await database.query(
+    `
+      SELECT
+        r.registration_id,
+        r.event_id,
+        r.user_id,
+        r.first_name,
+        r.last_name,
+        r.gender,
+        r.age,
+        r.food_allergies,
+        r.registration_date,
+        r.registration_status,
+        r.created_at,
+        r.updated_at,
+        e.event_name,
+        u.user_name,
+        u.user_email,
+        u.user_role
+      FROM registrations r
+      JOIN EVENTS e ON r.event_id = e.event_id
+      JOIN users u ON r.user_id = u.user_id
+      ORDER BY r.registration_id DESC
+    `
+  );
 
-    response.json(registration_rows);
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json(registration_rows);
+}));
 
-app.get('/events', async (request, response) => {
-  try {
-    const [event_rows] = await database.query(
-      `
-        SELECT
-          e.event_id,
-          e.event_name,
-          e.event_date,
-          e.event_time,
-          e.event_location,
-          e.event_capacity,
-          e.event_description,
-          e.event_image,
-          e.created_by_user_id,
-          e.created_at,
-          e.updated_at,
-          creator.user_name AS created_by_user_name,
-          COALESCE(SUM(
-            CASE
-              WHEN r.registration_id IS NOT NULL AND r.registration_status <> 'cancelled' THEN 1
-              ELSE 0
-            END
-          ), 0) AS registration_count
-        FROM EVENTS e
-        LEFT JOIN users creator ON creator.user_id = e.created_by_user_id
-        LEFT JOIN registrations r ON r.event_id = e.event_id
-        GROUP BY
-          e.event_id,
-          e.event_name,
-          e.event_date,
-          e.event_time,
-          e.event_location,
-          e.event_capacity,
-          e.event_description,
-          e.event_image,
-          e.created_by_user_id,
-          e.created_at,
-          e.updated_at,
-          creator.user_name
-        ORDER BY e.event_id DESC
-      `
-    );
+app.get('/events', async_handler(async (request, response) => {
+  const [event_rows] = await database.query(
+    `
+      SELECT
+        e.event_id,
+        e.event_name,
+        e.event_date,
+        e.event_time,
+        e.event_location,
+        e.event_capacity,
+        e.event_description,
+        e.event_image,
+        e.created_by_user_id,
+        e.created_at,
+        e.updated_at,
+        creator.user_name AS created_by_user_name,
+        COALESCE(SUM(
+          CASE
+            WHEN r.registration_id IS NOT NULL AND r.registration_status <> 'cancelled' THEN 1
+            ELSE 0
+          END
+        ), 0) AS registration_count
+      FROM EVENTS e
+      LEFT JOIN users creator ON creator.user_id = e.created_by_user_id
+      LEFT JOIN registrations r ON r.event_id = e.event_id
+      GROUP BY
+        e.event_id,
+        e.event_name,
+        e.event_date,
+        e.event_time,
+        e.event_location,
+        e.event_capacity,
+        e.event_description,
+        e.event_image,
+        e.created_by_user_id,
+        e.created_at,
+        e.updated_at,
+        creator.user_name
+      ORDER BY e.event_id DESC
+    `
+  );
 
-    response.json(event_rows);
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json(event_rows);
+}));
 
-app.post('/events', async (request, response) => {
+app.post('/events', async_handler(async (request, response) => {
   const {
     user_id,
     event_name,
@@ -549,49 +589,44 @@ app.post('/events', async (request, response) => {
     });
   }
 
-  try {
-    const user_row = await require_authenticated_user(user_id);
+  const user_row = await require_authenticated_user(user_id);
+  const event_image = event_image_data ? save_event_image(event_image_data) : null;
 
-    const event_image = event_image_data ? save_event_image(event_image_data) : null;
-
-    const [insert_event_result] = await database.query(
-      `
-        INSERT INTO EVENTS (
-          event_name,
-          event_date,
-          event_time,
-          event_location,
-          event_capacity,
-          event_description,
-          event_image,
-          created_by_user_id
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
+  const [insert_event_result] = await database.query(
+    `
+      INSERT INTO EVENTS (
         event_name,
         event_date,
         event_time,
         event_location,
         event_capacity,
-        event_description || null,
+        event_description,
         event_image,
-        user_row.user_id
-      ]
-    );
-
-    response.status(201).json({
-      message: 'Created event successfully',
-      event_id: insert_event_result.insertId,
+        created_by_user_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      event_name,
+      event_date,
+      event_time,
+      event_location,
+      event_capacity,
+      event_description || null,
       event_image,
-      created_by_user_id: user_row.user_id
-    });
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+      user_row.user_id
+    ]
+  );
 
-app.put('/events/:event_id', async (request, response) => {
+  response.status(201).json({
+    message: 'Created event successfully',
+    event_id: insert_event_result.insertId,
+    event_image,
+    created_by_user_id: user_row.user_id
+  });
+}));
+
+app.put('/events/:event_id', async_handler(async (request, response) => {
   const { event_id } = request.params;
   const {
     user_id,
@@ -605,68 +640,60 @@ app.put('/events/:event_id', async (request, response) => {
     remove_event_image
   } = request.body;
 
-  try {
-    const { event_row: existing_event_row } = await require_event_owner(event_id, user_id);
+  const { event_row: existing_event_row } = await require_event_owner(event_id, user_id);
 
-    let event_image = existing_event_row.event_image;
+  let event_image = existing_event_row.event_image;
 
-    if (remove_event_image) {
-      delete_event_image_file(existing_event_row.event_image);
-      event_image = null;
-    }
-
-    if (event_image_data) {
-      delete_event_image_file(existing_event_row.event_image);
-      event_image = save_event_image(event_image_data);
-    }
-
-    await database.query(
-      `
-        UPDATE EVENTS
-        SET
-          event_name = ?,
-          event_date = ?,
-          event_time = ?,
-          event_location = ?,
-          event_capacity = ?,
-          event_description = ?,
-          event_image = ?
-        WHERE event_id = ?
-      `,
-      [
-        event_name || existing_event_row.event_name,
-        event_date || existing_event_row.event_date,
-        event_time || existing_event_row.event_time,
-        event_location || existing_event_row.event_location,
-        event_capacity || existing_event_row.event_capacity,
-        event_description ?? existing_event_row.event_description,
-        event_image,
-        event_id
-      ]
-    );
-
-    response.json({ message: 'Updated event successfully', event_image });
-  } catch (error) {
-    send_error_response(response, error);
+  if (remove_event_image) {
+    delete_event_image_file(existing_event_row.event_image);
+    event_image = null;
   }
-});
 
-app.delete('/events/:event_id', async (request, response) => {
+  if (event_image_data) {
+    delete_event_image_file(existing_event_row.event_image);
+    event_image = save_event_image(event_image_data);
+  }
+
+  await database.query(
+    `
+      UPDATE EVENTS
+      SET
+        event_name = ?,
+        event_date = ?,
+        event_time = ?,
+        event_location = ?,
+        event_capacity = ?,
+        event_description = ?,
+        event_image = ?
+      WHERE event_id = ?
+    `,
+    [
+      event_name || existing_event_row.event_name,
+      event_date || existing_event_row.event_date,
+      event_time || existing_event_row.event_time,
+      event_location || existing_event_row.event_location,
+      event_capacity || existing_event_row.event_capacity,
+      event_description ?? existing_event_row.event_description,
+      event_image,
+      event_id
+    ]
+  );
+
+  response.json({ message: 'Updated event successfully', event_image });
+}));
+
+app.delete('/events/:event_id', async_handler(async (request, response) => {
   const { event_id } = request.params;
   const { user_id } = request.body;
 
-  try {
-    const { event_row: existing_event_row } = await require_event_owner(event_id, user_id);
+  const { event_row: existing_event_row } = await require_event_owner(event_id, user_id);
 
-    await database.query('DELETE FROM registrations WHERE event_id = ?', [event_id]);
-    await database.query('DELETE FROM EVENTS WHERE event_id = ?', [event_id]);
-    delete_event_image_file(existing_event_row.event_image);
+  await database.query('DELETE FROM registrations WHERE event_id = ?', [event_id]);
+  await database.query('DELETE FROM EVENTS WHERE event_id = ?', [event_id]);
+  delete_event_image_file(existing_event_row.event_image);
 
-    response.json({ message: 'Deleted event successfully' });
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json({ message: 'Deleted event successfully' });
+}));
 
 app.post('/registrations', async (request, response) => {
   const {
@@ -735,6 +762,44 @@ app.post('/registrations', async (request, response) => {
       throw create_http_error(400, 'user_id or participant profile is required');
     }
 
+    const existing_registration_row = await get_existing_registration(event_id, registration_user_id);
+
+    if (existing_registration_row) {
+
+      if (String(existing_registration_row.registration_status || '').toLowerCase() !== 'cancelled') {
+        throw create_http_error(400, 'This user already registered for this event');
+      }
+
+      await database.query(
+        `
+          UPDATE registrations
+          SET
+            first_name = ?,
+            last_name = ?,
+            gender = ?,
+            age = ?,
+            food_allergies = ?,
+            registration_status = 'pending',
+            registration_date = NOW()
+          WHERE registration_id = ?
+        `,
+        [
+          normalized_first_name,
+          normalized_last_name,
+          normalized_gender,
+          normalized_age,
+          normalized_food_allergies || null,
+          existing_registration_row.registration_id
+        ]
+      );
+
+      return response.json({
+        message: 'Registered successfully',
+        registration_id: existing_registration_row.registration_id,
+        user_id: registration_user_id
+      });
+    }
+
     const [insert_registration_result] = await database.query(
       `
         INSERT INTO registrations (
@@ -775,78 +840,98 @@ app.post('/registrations', async (request, response) => {
   }
 });
 
-app.get('/events/:event_id/participants', async (request, response) => {
+app.patch('/registrations/:registration_id/cancel', async_handler(async (request, response) => {
+  const { registration_id } = request.params;
+  const { user_id } = request.body;
+
+  const { registration_row } = await require_registration_access(registration_id, user_id);
+
+  if (String(registration_row.registration_status || '').toLowerCase() === 'cancelled') {
+    return response.json({
+      message: 'Registration already cancelled',
+      registration_id: registration_row.registration_id
+    });
+  }
+
+  await database.query(
+    `
+      UPDATE registrations
+      SET registration_status = 'cancelled'
+      WHERE registration_id = ?
+    `,
+    [registration_id]
+  );
+
+  response.json({
+    message: 'Cancelled registration successfully',
+    registration_id: Number(registration_id)
+  });
+}));
+
+app.get('/events/:event_id/participants', async_handler(async (request, response) => {
   const { event_id } = request.params;
 
-  try {
-    const [registration_rows] = await database.query(
-      `
-        SELECT
-          r.registration_id,
-          r.event_id,
-          r.user_id,
-          r.first_name,
-          r.last_name,
-          r.gender,
-          r.age,
-          r.food_allergies,
-          r.registration_date,
-          r.registration_status,
-          r.created_at,
-          r.updated_at,
-          u.user_name,
-          u.user_email,
-          u.user_phone,
-          u.user_role
-        FROM registrations r
-        JOIN users u ON r.user_id = u.user_id
-        WHERE r.event_id = ?
-        ORDER BY r.registration_id DESC
-      `,
-      [event_id]
-    );
+  const [registration_rows] = await database.query(
+    `
+      SELECT
+        r.registration_id,
+        r.event_id,
+        r.user_id,
+        r.first_name,
+        r.last_name,
+        r.gender,
+        r.age,
+        r.food_allergies,
+        r.registration_date,
+        r.registration_status,
+        r.created_at,
+        r.updated_at,
+        u.user_name,
+        u.user_email,
+        u.user_phone,
+        u.user_role
+      FROM registrations r
+      JOIN users u ON r.user_id = u.user_id
+      WHERE r.event_id = ?
+      ORDER BY r.registration_id DESC
+    `,
+    [event_id]
+  );
 
-    response.json(registration_rows);
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json(registration_rows);
+}));
 
-app.get('/users/:user_id/registrations', async (request, response) => {
+app.get('/users/:user_id/registrations', async_handler(async (request, response) => {
   const { user_id } = request.params;
 
-  try {
-    const [registration_rows] = await database.query(
-      `
-        SELECT
-          r.registration_id,
-          r.event_id,
-          r.user_id,
-          r.first_name,
-          r.last_name,
-          r.gender,
-          r.age,
-          r.food_allergies,
-          r.registration_date,
-          r.registration_status,
-          e.event_name,
-          e.event_date,
-          e.event_time,
-          e.event_location,
-          e.event_image
-        FROM registrations r
-        JOIN EVENTS e ON r.event_id = e.event_id
-        WHERE r.user_id = ?
-        ORDER BY r.registration_id DESC
-      `,
-      [user_id]
-    );
+  const [registration_rows] = await database.query(
+    `
+      SELECT
+        r.registration_id,
+        r.event_id,
+        r.user_id,
+        r.first_name,
+        r.last_name,
+        r.gender,
+        r.age,
+        r.food_allergies,
+        r.registration_date,
+        r.registration_status,
+        e.event_name,
+        e.event_date,
+        e.event_time,
+        e.event_location,
+        e.event_image
+      FROM registrations r
+      JOIN EVENTS e ON r.event_id = e.event_id
+      WHERE r.user_id = ?
+      ORDER BY r.registration_id DESC
+    `,
+    [user_id]
+  );
 
-    response.json(registration_rows);
-  } catch (error) {
-    send_error_response(response, error);
-  }
-});
+  response.json(registration_rows);
+}));
 
 async function start_server() {
   try {

@@ -1,4 +1,4 @@
-fetch('http://localhost:3070/health')
+fetch(`${API_BASE_URL}/health`)
     .then((http_response) => http_response.json())
     .then((health_response) => {
         console.log('health_response:', health_response);
