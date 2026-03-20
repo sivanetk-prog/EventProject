@@ -1,15 +1,16 @@
 (() => {
     let dialog_resolver = null;
 
-    function ensure_dialog() {
-        let dialog_modal = document.getElementById('app-dialog-modal');
-        if (dialog_modal) {
+    function get_dialog_parts() {
+        const existing_modal = get_element('app-dialog-modal');
+
+        if (existing_modal) {
             return {
-                modal: dialog_modal,
-                title: document.getElementById('app-dialog-title'),
-                message: document.getElementById('app-dialog-message'),
-                confirm_button: document.getElementById('app-dialog-confirm'),
-                cancel_button: document.getElementById('app-dialog-cancel')
+                modal: existing_modal,
+                title: get_element('app-dialog-title'),
+                message: get_element('app-dialog-message'),
+                confirm_button: get_element('app-dialog-confirm'),
+                cancel_button: get_element('app-dialog-cancel')
             };
         }
 
@@ -29,13 +30,12 @@
             `
         );
 
-        dialog_modal = document.getElementById('app-dialog-modal');
         const dialog_parts = {
-            modal: dialog_modal,
-            title: document.getElementById('app-dialog-title'),
-            message: document.getElementById('app-dialog-message'),
-            confirm_button: document.getElementById('app-dialog-confirm'),
-            cancel_button: document.getElementById('app-dialog-cancel')
+            modal: get_element('app-dialog-modal'),
+            title: get_element('app-dialog-title'),
+            message: get_element('app-dialog-message'),
+            confirm_button: get_element('app-dialog-confirm'),
+            cancel_button: get_element('app-dialog-cancel')
         };
 
         dialog_parts.confirm_button.addEventListener('click', () => close_dialog(true));
@@ -47,7 +47,9 @@
         });
 
         document.addEventListener('keydown', (keyboard_event) => {
-            if (dialog_parts.modal.style.display !== 'flex') return;
+            if (dialog_parts.modal.style.display !== 'flex') {
+                return;
+            }
 
             if (keyboard_event.key === 'Escape') {
                 keyboard_event.preventDefault();
@@ -64,14 +66,16 @@
     }
 
     function close_dialog(result) {
-        const dialog_parts = ensure_dialog();
+        const dialog_parts = get_dialog_parts();
         dialog_parts.modal.style.display = 'none';
 
-        if (dialog_resolver) {
-            const current_resolver = dialog_resolver;
-            dialog_resolver = null;
-            current_resolver(result);
+        if (!dialog_resolver) {
+            return;
         }
+
+        const current_resolver = dialog_resolver;
+        dialog_resolver = null;
+        current_resolver(result);
     }
 
     function show_dialog({
@@ -80,7 +84,7 @@
         confirm_text = 'ตกลง',
         cancel_text = ''
     }) {
-        const dialog_parts = ensure_dialog();
+        const dialog_parts = get_dialog_parts();
 
         dialog_parts.title.textContent = title;
         dialog_parts.message.textContent = String(message || '');

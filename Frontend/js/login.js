@@ -1,23 +1,23 @@
-document.getElementById('login-form').addEventListener('submit', async (submit_event) => {
-    submit_event.preventDefault();
+const login_form = get_element('login-form');
 
-    const user_email = document.getElementById('user_email').value.trim();
-    const user_password = document.getElementById('user_password').value.trim();
+if (login_form) {
+    login_form.addEventListener('submit', async (submit_event) => {
+        submit_event.preventDefault();
 
-    try {
-        const login_response = await axios.post(`${API_BASE_URL}/auth/login`, {
-            user_email,
-            user_password
-        });
+        const user_email = get_trimmed_input_value('user_email');
+        const user_password = get_trimmed_input_value('user_password');
 
-        const { user_row } = login_response.data;
+        try {
+            const login_response = await axios.post(`${API_BASE_URL}/auth/login`, {
+                user_email,
+                user_password
+            });
 
-        set_current_user(user_row);
-
-        await show_alert('เข้าสู่ระบบสำเร็จ!');
-        window.location.href = 'index.html';
-    } catch (request_error) {
-        console.error(request_error);
-        alert(get_request_error_message(request_error, 'ไม่สามารถเข้าสู่ระบบได้'));
-    }
-});
+            set_current_user(login_response.data.user_row);
+            await show_alert('เข้าสู่ระบบสำเร็จ!');
+            navigate_to('index.html');
+        } catch (request_error) {
+            show_request_error(request_error, 'ไม่สามารถเข้าสู่ระบบได้');
+        }
+    });
+}

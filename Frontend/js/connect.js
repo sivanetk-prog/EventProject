@@ -1,8 +1,12 @@
-fetch(`${API_BASE_URL}/health`)
-    .then((http_response) => http_response.json())
-    .then((health_response) => {
+async function check_backend_connection() {
+    try {
+        const http_response = await fetch(`${API_BASE_URL}/health`);
+        const health_response = await http_response.json();
+
         console.log('health_response:', health_response);
-    })
-    .catch((connection_error) => {
+    } catch (connection_error) {
         console.error('connection_error:', connection_error);
-    });
+    }
+}
+
+void check_backend_connection();

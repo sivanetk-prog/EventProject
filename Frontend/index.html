@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EventHub - ระบบจัดการกิจกรรม</title>
+    <title>อีเวนต์ฮับ - ระบบจัดการกิจกรรม</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <header class="header">
         <div class="container header-bar">
-            <div class="logo">EventHub</div>
+            <div class="logo">อีเวนต์ฮับ</div>
             <nav class="main-nav">
                 <a href="index.html" class="nav-link">หน้าหลัก</a>
                 <a href="login.html" id="login-link" class="btn secondary">เข้าสู่ระบบ</a>
@@ -21,11 +21,11 @@
 
     <section class="hero">
         <div class="container hero-content">
-            <h1>EventHub</h1>
+            <h1>อีเวนต์ฮับ</h1>
             <p>สร้างกิจกรรม จองกิจกรรม และอัปโหลดรูปภาพจากคอมพิวเตอร์ได้ในระบบเดียว</p>
             <div class="hero-buttons">
-                <button class="btn primary large" onclick="document.getElementById('events-section').scrollIntoView({ behavior: 'smooth' })">ดูกิจกรรม</button>
-                <button id="create-event-link" class="btn secondary large" onclick="document.getElementById('create-event').scrollIntoView({ behavior: 'smooth' })">สร้างกิจกรรม</button>
+                <button class="btn primary large" onclick="scroll_to_section('events-section')">ดูกิจกรรม</button>
+                <button id="create-event-link" class="btn secondary large" onclick="scroll_to_section('create-event')">สร้างกิจกรรม</button>
             </div>
         </div>
     </section>
@@ -60,7 +60,7 @@
                 <label for="event_image_file">อัปโหลดรูปกิจกรรม</label>
                 <input type="file" id="event_image_file" accept="image/*">
                 <div id="create-image-preview" class="image-preview" style="display: none;">
-                    <img id="create-image-preview-img" alt="Preview">
+                    <img id="create-image-preview-img" alt="ตัวอย่างรูปกิจกรรม">
                 </div>
 
                 <button type="submit" class="btn primary full-width">สร้างกิจกรรม</button>
@@ -156,7 +156,7 @@
                         <span>ลบรูปเดิม</span>
                     </label>
                     <div id="edit-image-preview" class="image-preview" style="display: none;">
-                        <img id="edit-image-preview-img" alt="Edit Preview">
+                        <img id="edit-image-preview-img" alt="ตัวอย่างรูปกิจกรรมที่แก้ไข">
                     </div>
                 </div>
 
@@ -169,7 +169,7 @@
     </div>
 
     <footer class="footer">
-        <p>EventHub เชื่อมต่อ Backend และฐานข้อมูล MySQL</p>
+        <p>&copy; 2025 อีเวนต์ฮับ พัฒนาโดย แบงก์ และ ฟลุค</p>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>

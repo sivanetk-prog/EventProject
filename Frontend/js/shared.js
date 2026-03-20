@@ -8,6 +8,44 @@ const CURRENT_USER_STORAGE_KEYS = {
     role: 'current_user_role'
 };
 
+function get_element(element_id) {
+    return document.getElementById(element_id);
+}
+
+function get_input_value(element_id) {
+    return get_element(element_id)?.value || '';
+}
+
+function get_trimmed_input_value(element_id) {
+    return get_input_value(element_id).trim();
+}
+
+function get_number_input_value(element_id) {
+    return Number.parseInt(get_input_value(element_id) || '0', 10);
+}
+
+function get_input_file(element_id) {
+    return get_element(element_id)?.files?.[0] || null;
+}
+
+function navigate_to(page_path) {
+    window.location.href = page_path;
+}
+
+function scroll_to_section(element_id) {
+    get_element(element_id)?.scrollIntoView({ behavior: 'smooth' });
+}
+
+function escape_html(value) {
+    return String(value || '').replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[character]));
+}
+
 function is_logged_in_user() {
     return localStorage.getItem(CURRENT_USER_STORAGE_KEYS.logged_in) === 'true';
 }
@@ -49,4 +87,9 @@ function get_request_error_message(request_error, fallback_message) {
         request_error?.response?.data?.error ||
         fallback_message
     );
+}
+
+function show_request_error(request_error, fallback_message) {
+    console.error(request_error);
+    alert(get_request_error_message(request_error, fallback_message));
 }

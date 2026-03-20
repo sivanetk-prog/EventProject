@@ -1,7 +1,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    font-family: "Noto Sans Thai", "Sarabun", "TH Sarabun New", "Segoe UI", Tahoma, sans-serif;
     background: #f5f7fb;
     color: #1d1d1f;
     line-height: 1.5;
@@ -387,8 +387,7 @@ input:focus, textarea:focus {
     color: #66758f;
 }
 
-.login-container,
-.auth-container {
+.login-container {
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -396,13 +395,36 @@ input:focus, textarea:focus {
     padding: 24px;
 }
 
-.login-card,
-.auth-card {
+.login-card {
     width: min(480px, 100%);
     background: white;
     border-radius: 24px;
     padding: 40px;
     box-shadow: 0 20px 55px rgba(20, 40, 80, 0.1);
+}
+
+.auth-subtitle {
+    text-align: center;
+    color: #6e6e73;
+    margin-bottom: 40px;
+}
+
+.auth-links {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.auth-link-note {
+    color: #6e6e73;
+}
+
+.auth-back-link {
+    margin-top: 12px;
+}
+
+.auth-link {
+    color: #0071e3;
+    text-decoration: none;
 }
 
 @media (max-width: 640px) {
@@ -424,8 +446,7 @@ input:focus, textarea:focus {
     .form-card,
     .modal-card,
     .modal-content,
-    .login-card,
-    .auth-card {
+    .login-card {
         padding: 22px;
     }
 }

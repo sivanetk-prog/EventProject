@@ -38,6 +38,10 @@ const default_admin_user = {
   user_role: 'admin'
 };
 
+const REGISTRATION_STATUS_PENDING = 'รอดำเนินการ';
+const REGISTRATION_STATUS_CANCELLED = 'ยกเลิกการลงทะเบียน';
+const DEFAULT_GUEST_PASSWORD = 'guest1234';
+
 function create_http_error(status_code, message) {
   const error = new Error(message);
   error.status_code = status_code;
@@ -49,6 +53,32 @@ function send_error_response(response, error) {
     message: error.message,
     error: error.message
   });
+}
+
+function is_duplicate_entry_error(error) {
+  return error?.code === 'ER_DUP_ENTRY';
+}
+
+function normalize_text(value) {
+  return String(value || '').trim();
+}
+
+function normalize_optional_text(value) {
+  const normalized_value = normalize_text(value);
+  return normalized_value || null;
+}
+
+function normalize_positive_number(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized_number = Number(value);
+  return Number.isFinite(normalized_number) ? normalized_number : Number.NaN;
+}
+
+function is_cancelled_registration_status(status) {
+  return normalize_text(status).toLowerCase() === REGISTRATION_STATUS_CANCELLED;
 }
 
 async function query_first_row(query_text, query_values = []) {
@@ -66,6 +96,7 @@ function async_handler(route_handler) {
   };
 }
 
+// Generic data helpers used by several routes.
 function build_guest_user_email(participant_name) {
   const email_name = String(participant_name)
     .toLowerCase()
@@ -100,6 +131,32 @@ function delete_event_image_file(event_image) {
   }
 }
 
+function resolve_public_event_image(event_image) {
+  if (!event_image) {
+    return null;
+  }
+
+  const normalized_event_image = String(event_image).trim();
+  if (!normalized_event_image) {
+    return null;
+  }
+
+  if (!normalized_event_image.startsWith('/uploads/')) {
+    return normalized_event_image;
+  }
+
+  const image_file_name = path.basename(normalized_event_image);
+  const image_path = path.join(uploads_directory, image_file_name);
+  return fs.existsSync(image_path) ? normalized_event_image : null;
+}
+
+function map_rows_with_public_event_image(row_list) {
+  return row_list.map((row) => ({
+    ...row,
+    event_image: resolve_public_event_image(row.event_image)
+  }));
+}
+
 function save_event_image(event_image_data) {
   if (!event_image_data) {
     return null;
@@ -110,7 +167,7 @@ function save_event_image(event_image_data) {
   );
 
   if (!image_match) {
-    throw create_http_error(400, 'Invalid image format');
+    throw create_http_error(400, 'รูปแบบไฟล์รูปภาพไม่ถูกต้อง');
   }
 
   const image_extension = image_match[1].toLowerCase() === 'jpeg' ? 'jpg' : image_match[1].toLowerCase();
@@ -135,50 +192,37 @@ async function test_database_connection() {
   }
 }
 
-async function ensure_event_image_column() {
+async function ensure_table_column(table_name, column_name, sql_type, after_column) {
   const [column_rows] = await database.query(
     `
       SELECT COUNT(*) AS column_count
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = 'EVENTS'
-        AND COLUMN_NAME = 'event_image'
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
     `,
-    [database_config.database]
+    [database_config.database, table_name, column_name]
   );
 
-  if (Number(column_rows[0].column_count) === 0) {
-    await database.query(
-      `
-        ALTER TABLE EVENTS
-        ADD COLUMN event_image VARCHAR(255) NULL
-        AFTER event_description
-      `
-    );
+  if (Number(column_rows[0].column_count) > 0) {
+    return;
   }
+
+  await database.query(
+    `
+      ALTER TABLE ${table_name}
+      ADD COLUMN ${column_name} ${sql_type}
+      AFTER ${after_column}
+    `
+  );
+}
+
+async function ensure_event_image_column() {
+  await ensure_table_column('EVENTS', 'event_image', 'VARCHAR(255) NULL', 'event_description');
 }
 
 async function ensure_event_owner_column() {
-  const [column_rows] = await database.query(
-    `
-      SELECT COUNT(*) AS column_count
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = 'EVENTS'
-        AND COLUMN_NAME = 'created_by_user_id'
-    `,
-    [database_config.database]
-  );
-
-  if (Number(column_rows[0].column_count) === 0) {
-    await database.query(
-      `
-        ALTER TABLE EVENTS
-        ADD COLUMN created_by_user_id INT NULL
-        AFTER event_image
-      `
-    );
-  }
+  await ensure_table_column('EVENTS', 'created_by_user_id', 'INT NULL', 'event_image');
 }
 
 async function ensure_registration_profile_columns() {
@@ -191,29 +235,16 @@ async function ensure_registration_profile_columns() {
   ];
 
   for (const column_row of required_columns) {
-    const [existing_column_rows] = await database.query(
-      `
-        SELECT COUNT(*) AS column_count
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = ?
-          AND TABLE_NAME = 'registrations'
-          AND COLUMN_NAME = ?
-      `,
-      [database_config.database, column_row.column_name]
+    await ensure_table_column(
+      'registrations',
+      column_row.column_name,
+      column_row.sql_type,
+      column_row.after_column
     );
-
-    if (Number(existing_column_rows[0].column_count) === 0) {
-      await database.query(
-        `
-          ALTER TABLE registrations
-          ADD COLUMN ${column_row.column_name} ${column_row.sql_type}
-          AFTER ${column_row.after_column}
-        `
-      );
-    }
   }
 }
 
+// Database lookup helpers keep route handlers smaller and easier to read.
 async function get_user_by_id(user_id) {
   return query_first_row(
     `
@@ -228,16 +259,16 @@ async function get_user_by_id(user_id) {
 
 async function require_admin_user(user_id) {
   if (!user_id) {
-    throw create_http_error(401, 'Admin user_id is required');
+    throw create_http_error(401, 'กรุณาระบุ user_id ของผู้ดูแลระบบ');
   }
 
   const user_row = await get_user_by_id(user_id);
   if (!user_row) {
-    throw create_http_error(404, 'User not found');
+    throw create_http_error(404, 'ไม่พบผู้ใช้');
   }
 
   if (user_row.user_role !== 'admin') {
-    throw create_http_error(403, 'Only admin can manage events');
+    throw create_http_error(403, 'เฉพาะผู้ดูแลระบบเท่านั้นที่จัดการกิจกรรมได้');
   }
 
   return user_row;
@@ -245,12 +276,12 @@ async function require_admin_user(user_id) {
 
 async function require_authenticated_user(user_id) {
   if (!user_id) {
-    throw create_http_error(401, 'user_id is required');
+    throw create_http_error(401, 'กรุณาระบุ user_id');
   }
 
   const user_row = await get_user_by_id(user_id);
   if (!user_row) {
-    throw create_http_error(404, 'User not found');
+    throw create_http_error(404, 'ไม่พบผู้ใช้');
   }
 
   return user_row;
@@ -284,14 +315,14 @@ async function require_event_owner(event_id, user_id) {
   const event_row = await get_event_by_id(event_id);
 
   if (!event_row) {
-    throw create_http_error(404, 'Event not found');
+    throw create_http_error(404, 'ไม่พบกิจกรรม');
   }
 
   if (
     user_row.user_role !== 'admin' &&
     Number(event_row.created_by_user_id) !== Number(user_row.user_id)
   ) {
-    throw create_http_error(403, 'Only the event creator or admin can edit or delete this event');
+    throw create_http_error(403, 'เฉพาะผู้สร้างกิจกรรมหรือผู้ดูแลระบบเท่านั้นที่แก้ไขหรือลบกิจกรรมนี้ได้');
   }
 
   return { user_row, event_row };
@@ -328,19 +359,41 @@ async function get_existing_registration(event_id, user_id) {
   );
 }
 
+async function get_event_registration_summary(event_id) {
+  return query_first_row(
+    `
+      SELECT
+        e.event_id,
+        e.event_capacity,
+        COALESCE(SUM(
+          CASE
+            WHEN r.registration_id IS NOT NULL AND r.registration_status <> ? THEN 1
+            ELSE 0
+          END
+        ), 0) AS registration_count
+      FROM EVENTS e
+      LEFT JOIN registrations r ON r.event_id = e.event_id
+      WHERE e.event_id = ?
+      GROUP BY e.event_id, e.event_capacity
+      LIMIT 1
+    `,
+    [REGISTRATION_STATUS_CANCELLED, event_id]
+  );
+}
+
 async function require_registration_access(registration_id, user_id) {
   const user_row = await require_authenticated_user(user_id);
   const registration_row = await get_registration_by_id(registration_id);
 
   if (!registration_row) {
-    throw create_http_error(404, 'Registration not found');
+    throw create_http_error(404, 'ไม่พบข้อมูลการลงทะเบียน');
   }
 
   if (
     user_row.user_role !== 'admin' &&
     Number(registration_row.user_id) !== Number(user_row.user_id)
   ) {
-    throw create_http_error(403, 'Only the registration owner or admin can cancel this registration');
+    throw create_http_error(403, 'เฉพาะเจ้าของการลงทะเบียนหรือผู้ดูแลระบบเท่านั้นที่ยกเลิกรายการนี้ได้');
   }
 
   return { user_row, registration_row };
@@ -349,13 +402,13 @@ async function require_registration_access(registration_id, user_id) {
 async function get_or_create_user_id(participant_name) {
   const user_email = build_guest_user_email(participant_name);
 
-  const [existing_user_rows] = await database.query(
+  const existing_user_row = await query_first_row(
     'SELECT user_id FROM users WHERE user_email = ? LIMIT 1',
     [user_email]
   );
 
-  if (existing_user_rows.length > 0) {
-    return existing_user_rows[0].user_id;
+  if (existing_user_row) {
+    return existing_user_row.user_id;
   }
 
   const [insert_user_result] = await database.query(
@@ -363,14 +416,14 @@ async function get_or_create_user_id(participant_name) {
       INSERT INTO users (user_name, user_email, user_phone, user_password, user_role)
       VALUES (?, ?, NULL, ?, 'participant')
     `,
-    [participant_name, user_email, 'guest1234']
+    [participant_name, user_email, DEFAULT_GUEST_PASSWORD]
   );
 
   return insert_user_result.insertId;
 }
 
 async function ensure_default_admin_user() {
-  const [existing_admin_rows] = await database.query(
+  const existing_admin_row = await query_first_row(
     `
       SELECT user_id
       FROM users
@@ -380,17 +433,17 @@ async function ensure_default_admin_user() {
     [default_admin_user.user_email]
   );
 
-  if (existing_admin_rows.length > 0) {
+  if (existing_admin_row) {
     await database.query(
       `
         UPDATE users
         SET user_role = 'admin'
         WHERE user_id = ?
       `,
-      [existing_admin_rows[0].user_id]
+      [existing_admin_row.user_id]
     );
 
-    return existing_admin_rows[0].user_id;
+    return existing_admin_row.user_id;
   }
 
   const [insert_admin_result] = await database.query(
@@ -409,6 +462,30 @@ async function ensure_default_admin_user() {
   return insert_admin_result.insertId;
 }
 
+function normalize_registration_payload(registration_payload) {
+  const normalized_first_name = normalize_text(registration_payload.first_name);
+  const normalized_last_name = normalize_text(registration_payload.last_name);
+  const normalized_gender = normalize_text(registration_payload.gender);
+  const normalized_food_allergies = normalize_optional_text(registration_payload.food_allergies);
+  const normalized_age = normalize_positive_number(registration_payload.age);
+  const registration_full_name =
+    build_participant_full_name(normalized_first_name, normalized_last_name) ||
+    normalize_text(registration_payload.participant_name);
+
+  return {
+    normalized_first_name,
+    normalized_last_name,
+    normalized_gender,
+    normalized_food_allergies,
+    normalized_age,
+    registration_full_name
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
 app.get('/health', async_handler(async (request, response) => {
   await database.query('SELECT 1');
   response.json({ ok: true, database_status: 'connected' });
@@ -419,7 +496,7 @@ app.post('/users/register', async (request, response) => {
 
   if (!user_name || !user_email || !user_password) {
     return response.status(400).json({
-      message: 'user_name, user_email, and user_password are required'
+      message: 'กรุณากรอกชื่อผู้ใช้ อีเมล และรหัสผ่านให้ครบ'
     });
   }
 
@@ -435,12 +512,12 @@ app.post('/users/register', async (request, response) => {
     const user_row = await get_user_by_id(insert_user_result.insertId);
 
     response.status(201).json({
-      message: 'Created user successfully',
+      message: 'สมัครสมาชิกสำเร็จ',
       user_row
     });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
-      return response.status(400).json({ message: 'This email is already registered' });
+    if (is_duplicate_entry_error(error)) {
+      return response.status(400).json({ message: 'อีเมลนี้ถูกใช้งานแล้ว' });
     }
 
     send_error_response(response, error);
@@ -452,7 +529,7 @@ app.post('/auth/login', async_handler(async (request, response) => {
 
   if (!user_email || !user_password) {
     return response.status(400).json({
-      message: 'user_email and user_password are required'
+      message: 'กรุณากรอกอีเมลและรหัสผ่าน'
     });
   }
 
@@ -467,11 +544,11 @@ app.post('/auth/login', async_handler(async (request, response) => {
   );
 
   if (!user_row) {
-    throw create_http_error(401, 'Invalid email or password');
+    throw create_http_error(401, 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
   }
 
   response.json({
-    message: 'Login successful',
+    message: 'เข้าสู่ระบบสำเร็จ',
     user_row
   });
 }));
@@ -544,7 +621,7 @@ app.get('/events', async_handler(async (request, response) => {
         creator.user_name AS created_by_user_name,
         COALESCE(SUM(
           CASE
-            WHEN r.registration_id IS NOT NULL AND r.registration_status <> 'cancelled' THEN 1
+            WHEN r.registration_id IS NOT NULL AND r.registration_status <> ? THEN 1
             ELSE 0
           END
         ), 0) AS registration_count
@@ -565,10 +642,11 @@ app.get('/events', async_handler(async (request, response) => {
         e.updated_at,
         creator.user_name
       ORDER BY e.event_id DESC
-    `
+    `,
+    [REGISTRATION_STATUS_CANCELLED]
   );
 
-  response.json(event_rows);
+  response.json(map_rows_with_public_event_image(event_rows));
 }));
 
 app.post('/events', async_handler(async (request, response) => {
@@ -585,7 +663,7 @@ app.post('/events', async_handler(async (request, response) => {
 
   if (!event_name || !event_date || !event_time || !event_location || !event_capacity) {
     return response.status(400).json({
-      message: 'event_name, event_date, event_time, event_location, and event_capacity are required'
+      message: 'กรุณากรอกชื่อกิจกรรม วันที่ เวลา สถานที่ และจำนวนที่รับให้ครบ'
     });
   }
 
@@ -619,7 +697,7 @@ app.post('/events', async_handler(async (request, response) => {
   );
 
   response.status(201).json({
-    message: 'Created event successfully',
+    message: 'สร้างกิจกรรมสำเร็จ',
     event_id: insert_event_result.insertId,
     event_image,
     created_by_user_id: user_row.user_id
@@ -679,7 +757,7 @@ app.put('/events/:event_id', async_handler(async (request, response) => {
     ]
   );
 
-  response.json({ message: 'Updated event successfully', event_image });
+  response.json({ message: 'อัปเดตกิจกรรมสำเร็จ', event_image });
 }));
 
 app.delete('/events/:event_id', async_handler(async (request, response) => {
@@ -692,82 +770,52 @@ app.delete('/events/:event_id', async_handler(async (request, response) => {
   await database.query('DELETE FROM EVENTS WHERE event_id = ?', [event_id]);
   delete_event_image_file(existing_event_row.event_image);
 
-  response.json({ message: 'Deleted event successfully' });
+  response.json({ message: 'ลบกิจกรรมสำเร็จ' });
 }));
 
 app.post('/registrations', async (request, response) => {
-  const {
-    event_id,
-    user_id,
-    participant_name,
-    first_name,
-    last_name,
-    gender,
-    age,
-    food_allergies
-  } = request.body;
+  const { event_id, user_id } = request.body;
 
   try {
-    const normalized_first_name = String(first_name || '').trim();
-    const normalized_last_name = String(last_name || '').trim();
-    const normalized_gender = String(gender || '').trim();
-    const normalized_food_allergies = String(food_allergies || '').trim();
-    const normalized_age = age === '' || age === null || age === undefined
-      ? null
-      : Number(age);
-    const registration_full_name =
-      build_participant_full_name(normalized_first_name, normalized_last_name) ||
-      String(participant_name || '').trim();
+    const {
+      normalized_first_name,
+      normalized_last_name,
+      normalized_gender,
+      normalized_food_allergies,
+      normalized_age,
+      registration_full_name
+    } = normalize_registration_payload(request.body);
 
     if (!normalized_first_name || !normalized_last_name || !normalized_gender) {
-      throw create_http_error(400, 'first_name, last_name, and gender are required');
+      throw create_http_error(400, 'กรุณากรอกชื่อ นามสกุล และเพศให้ครบ');
     }
 
     if (normalized_age === null || Number.isNaN(normalized_age) || normalized_age <= 0) {
-      throw create_http_error(400, 'age must be a number greater than 0');
+      throw create_http_error(400, 'กรุณากรอกอายุเป็นตัวเลขมากกว่า 0');
     }
 
-    const [event_rows] = await database.query(
-      `
-        SELECT
-          e.event_id,
-          e.event_capacity,
-          COALESCE(SUM(
-            CASE
-              WHEN r.registration_id IS NOT NULL AND r.registration_status <> 'cancelled' THEN 1
-              ELSE 0
-            END
-          ), 0) AS registration_count
-        FROM EVENTS e
-        LEFT JOIN registrations r ON r.event_id = e.event_id
-        WHERE e.event_id = ?
-        GROUP BY e.event_id, e.event_capacity
-      `,
-      [event_id]
-    );
+    const event_row = await get_event_registration_summary(event_id);
 
-    if (event_rows.length === 0) {
-      throw create_http_error(404, 'Event not found');
+    if (!event_row) {
+      throw create_http_error(404, 'ไม่พบกิจกรรม');
     }
 
-    const event_row = event_rows[0];
     if (Number(event_row.registration_count) >= Number(event_row.event_capacity)) {
-      throw create_http_error(400, 'This event is full');
+      throw create_http_error(400, 'กิจกรรมนี้เต็มแล้ว');
     }
 
     const registration_user_id =
       user_id || (registration_full_name ? await get_or_create_user_id(registration_full_name) : null);
 
     if (!registration_user_id) {
-      throw create_http_error(400, 'user_id or participant profile is required');
+      throw create_http_error(400, 'กรุณาระบุ user_id หรือข้อมูลผู้ลงทะเบียน');
     }
 
     const existing_registration_row = await get_existing_registration(event_id, registration_user_id);
 
     if (existing_registration_row) {
-
-      if (String(existing_registration_row.registration_status || '').toLowerCase() !== 'cancelled') {
-        throw create_http_error(400, 'This user already registered for this event');
+      if (!is_cancelled_registration_status(existing_registration_row.registration_status)) {
+        throw create_http_error(400, 'ผู้ใช้นี้ลงทะเบียนกิจกรรมนี้แล้ว');
       }
 
       await database.query(
@@ -779,7 +827,7 @@ app.post('/registrations', async (request, response) => {
             gender = ?,
             age = ?,
             food_allergies = ?,
-            registration_status = 'pending',
+            registration_status = ?,
             registration_date = NOW()
           WHERE registration_id = ?
         `,
@@ -788,13 +836,14 @@ app.post('/registrations', async (request, response) => {
           normalized_last_name,
           normalized_gender,
           normalized_age,
-          normalized_food_allergies || null,
+          normalized_food_allergies,
+          REGISTRATION_STATUS_PENDING,
           existing_registration_row.registration_id
         ]
       );
 
       return response.json({
-        message: 'Registered successfully',
+        message: 'ลงทะเบียนสำเร็จ',
         registration_id: existing_registration_row.registration_id,
         user_id: registration_user_id
       });
@@ -820,19 +869,19 @@ app.post('/registrations', async (request, response) => {
         normalized_last_name,
         normalized_gender,
         normalized_age,
-        normalized_food_allergies || null
+        normalized_food_allergies
       ]
     );
 
     response.status(201).json({
-      message: 'Registered successfully',
+      message: 'ลงทะเบียนสำเร็จ',
       registration_id: insert_registration_result.insertId,
       user_id: registration_user_id
     });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (is_duplicate_entry_error(error)) {
       return response.status(400).json({
-        message: 'This user already registered for this event'
+        message: 'ผู้ใช้นี้ลงทะเบียนกิจกรรมนี้แล้ว'
       });
     }
 
@@ -846,9 +895,9 @@ app.patch('/registrations/:registration_id/cancel', async_handler(async (request
 
   const { registration_row } = await require_registration_access(registration_id, user_id);
 
-  if (String(registration_row.registration_status || '').toLowerCase() === 'cancelled') {
+  if (is_cancelled_registration_status(registration_row.registration_status)) {
     return response.json({
-      message: 'Registration already cancelled',
+      message: 'รายการนี้ถูกยกเลิกไปแล้ว',
       registration_id: registration_row.registration_id
     });
   }
@@ -856,14 +905,14 @@ app.patch('/registrations/:registration_id/cancel', async_handler(async (request
   await database.query(
     `
       UPDATE registrations
-      SET registration_status = 'cancelled'
+      SET registration_status = ?
       WHERE registration_id = ?
     `,
-    [registration_id]
+    [REGISTRATION_STATUS_CANCELLED, registration_id]
   );
 
   response.json({
-    message: 'Cancelled registration successfully',
+    message: 'ยกเลิกการลงทะเบียนสำเร็จ',
     registration_id: Number(registration_id)
   });
 }));
@@ -930,9 +979,10 @@ app.get('/users/:user_id/registrations', async_handler(async (request, response)
     [user_id]
   );
 
-  response.json(registration_rows);
+  response.json(map_rows_with_public_event_image(registration_rows));
 }));
 
+// Keep startup work together so the boot flow is easy to follow.
 async function start_server() {
   try {
     await test_database_connection();
